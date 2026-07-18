@@ -84,11 +84,24 @@ function MatchupCard({
       ? matchup.challenger_points
       : matchup.challenged_points;
 
-  const opponentPoints =
+   const opponentPoints =
     matchup.challenger_id === currentUserId
       ? matchup.challenged_points
       : matchup.challenger_points;
 
+  const isCompleted = matchup.status === "completed";
+
+  const didWin =
+    matchup.winner_id === currentUserId;
+
+  const didLose =
+    isCompleted &&
+    matchup.winner_id !== null &&
+    matchup.winner_id !== currentUserId;
+
+  const wasTie =
+    isCompleted &&
+    matchup.winner_id === null;
   return (
     <article className="rounded-2xl border bg-card p-6 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -117,6 +130,30 @@ function MatchupCard({
         </span>
       </div>
 
+            {isCompleted && (
+        <div
+          className={`mt-5 rounded-xl border p-4 text-center ${
+            didWin
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600"
+              : didLose
+                ? "border-red-500/30 bg-red-500/10 text-red-500"
+                : "border-amber-500/30 bg-amber-500/10 text-amber-600"
+          }`}
+        >
+          <p className="text-sm font-bold uppercase tracking-[0.2em]">
+            {didWin ? "Victory" : didLose ? "Defeat" : "Draw"}
+          </p>
+
+          <p className="mt-1 text-lg font-black">
+            {didWin
+              ? `You defeated ${getPlayerName(opponent)}`
+              : didLose
+                ? `${getPlayerName(opponent)} won the matchup`
+                : `You tied ${getPlayerName(opponent)}`}
+          </p>
+        </div>
+      )}
+
       <div className="mt-5 rounded-xl bg-muted/40 p-4">
         <p className="font-bold">
           {cleanText(matchup.event?.name) || "UFC Event"}
@@ -131,7 +168,10 @@ function MatchupCard({
         matchup.status === "completed") && (
         <div className="mt-5 grid grid-cols-2 gap-4">
           <div className="rounded-xl border p-4 text-center">
-            <p className="text-sm text-muted-foreground">Your points</p>
+            <p className="text-sm text-muted-foreground">
+              Your points
+            </p>
+
             <p className="mt-1 text-3xl font-black">
               {currentUserPoints}
             </p>
@@ -141,6 +181,7 @@ function MatchupCard({
             <p className="text-sm text-muted-foreground">
               Opponent points
             </p>
+
             <p className="mt-1 text-3xl font-black">
               {opponentPoints}
             </p>
@@ -190,6 +231,17 @@ function MatchupCard({
             className="inline-flex rounded-lg bg-primary px-5 py-3 font-bold text-primary-foreground"
           >
             Make Picks
+          </Link>
+        </div>
+      )}
+
+      {matchup.status === "completed" && matchup.event && (
+        <div className="mt-6">
+          <Link
+            href={`/events/${matchup.event.id}`}
+            className="inline-flex rounded-lg border px-5 py-3 font-bold hover:bg-muted"
+          >
+            View Event
           </Link>
         </div>
       )}

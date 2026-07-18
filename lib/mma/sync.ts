@@ -164,7 +164,119 @@ function groupFightsIntoEvents(apiFights: ApiFight[]): EventGroup[] {
     fights,
   }));
 }
+async function completeEventMatchups(
+  supabase: ReturnType<typeof createAdminClient>,
+  eventId: string
+): Promise<number> {
+  const { data: matchups, error: matchupsError } = await supabase
+    .from("matchups")
+    .select(`
+      id,
+      challenger_id,
+      challenged_id
+    `)
+    .eq("event_id", eventId)
+    .eq("status", "accepted");
 
+  if (matchupsError) {
+    throw new Error(
+      `Could not load matchups for event ${eventId}: ${matchupsError.message}`
+    );
+  }
+
+  if (!matchups || matchups.length === 0) {
+    return 0;
+  }
+
+  const { data: fights, error: fightsError } = await supabase
+    .from("fights")
+    .select("id")
+    .eq("event_id", eventId);
+
+  if (fightsError) {
+    throw new Error(
+      `Could not load fights for event ${eventId}: ${fightsError.message}`
+    );
+  }
+
+  const fightIds = (fights ?? []).map((fight) => fight.id);
+
+  if (fightIds.length === 0) {
+    return 0;
+  }
+
+  let completedCount = 0;
+
+  for (const matchup of matchups) {
+    const playerIds = [
+      matchup.challenger_id,
+      matchup.challenged_id,
+    ];
+
+    const { data: picks, error: picksError } = await supabase
+      .from("picks")
+      .select(`
+        user_id,
+        points
+      `)
+      .in("fight_id", fightIds)
+      .in("user_id", playerIds);
+
+    if (picksError) {
+      throw new Error(
+        `Could not load picks for matchup ${matchup.id}: ${picksError.message}`
+      );
+    }
+
+    const challengerPoints = (picks ?? [])
+      .filter(
+        (pick) => pick.user_id === matchup.challenger_id
+      )
+      .reduce(
+        (total, pick) => total + Number(pick.points ?? 0),
+        0
+      );
+
+    const challengedPoints = (picks ?? [])
+      .filter(
+        (pick) => pick.user_id === matchup.challenged_id
+      )
+      .reduce(
+        (total, pick) => total + Number(pick.points ?? 0),
+        0
+      );
+
+    let winnerId: string | null = null;
+
+    if (challengerPoints > challengedPoints) {
+      winnerId = matchup.challenger_id;
+    } else if (challengedPoints > challengerPoints) {
+      winnerId = matchup.challenged_id;
+    }
+
+    const { error: updateError } = await supabase
+      .from("matchups")
+      .update({
+        challenger_points: challengerPoints,
+        challenged_points: challengedPoints,
+        winner_id: winnerId,
+        status: "completed",
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", matchup.id)
+      .eq("status", "accepted");
+
+    if (updateError) {
+      throw new Error(
+        `Could not complete matchup ${matchup.id}: ${updateError.message}`
+      );
+    }
+
+    completedCount += 1;
+  }
+
+  return completedCount;
+}
 export async function syncRollingWindow() {
   const supabase = createAdminClient();
   const apiFights = await fetchRollingWindowFights();
@@ -173,7 +285,7 @@ export async function syncRollingWindow() {
   let eventCount = 0;
   let fightCount = 0;
   let scoredPickCount = 0;
-
+  let completedMatchupCount = 0;
   const syncedEvents = [];
 
   for (const eventGroup of eventGroups) {
@@ -356,7 +468,14 @@ export async function syncRollingWindow() {
         scoredPickCount += 1;
       }
     }
+    if (eventCompleted) {
+      const completedForEvent = await completeEventMatchups(
+        supabase,
+        event.id
+      );
 
+      completedMatchupCount += completedForEvent;
+    }
     syncedEvents.push({
       id: event.id,
       name: event.name,
@@ -370,6 +489,7 @@ export async function syncRollingWindow() {
     eventCount,
     fightCount,
     scoredPickCount,
+    completedMatchupCount,
     events: syncedEvents,
   };
 }

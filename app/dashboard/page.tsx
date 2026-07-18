@@ -1,11 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { getUpcomingEvents } from "@/lib/services/event";
+import { getCurrentUserMatchups } from "@/lib/services/matchups";
 import { getCurrentProfile } from "@/lib/services/profile";
+
+import { supabase } from "@/lib/supabase/client";
+
 import type { Event } from "@/lib/types/event";
+import type { Matchup } from "@/lib/types/matchup";
 import type { Profile } from "@/lib/types/profile";
 
 function cleanText(value: string) {
@@ -41,21 +47,34 @@ function formatEventTime(value: string | null) {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
+
   const [profile, setProfile] = useState<Profile | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
+  const [pendingChallenges, setPendingChallenges] = useState<Matchup[]>([]);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  useEffect(() => {
+    useEffect(() => {
     async function loadDashboard() {
       try {
-        const [profileData, eventData] = await Promise.all([
-          getCurrentProfile(),
-          getUpcomingEvents(),
-        ]);
+        const [profileData, eventData, matchupData] =
+          await Promise.all([
+            getCurrentProfile(),
+            getUpcomingEvents(),
+            getCurrentUserMatchups(),
+          ]);
+
+        const incomingChallenges = matchupData.matchups.filter(
+          (matchup) =>
+            matchup.status === "pending" &&
+            matchup.challenged_id === matchupData.currentUserId
+        );
 
         setProfile(profileData);
         setEvents(eventData);
+        setPendingChallenges(incomingChallenges);
       } catch (error) {
         console.error("Could not load dashboard:", error);
 
@@ -71,6 +90,32 @@ export default function DashboardPage() {
 
     loadDashboard();
   }, []);
+
+  async function handleLogout() {
+    try {
+      setIsLoggingOut(true);
+      setErrorMessage(null);
+
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      router.replace("/login");
+      router.refresh();
+    } catch (error) {
+      console.error("Could not log out:", error);
+
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not log out."
+      );
+
+      setIsLoggingOut(false);
+    }
+  }
 
   const nextEvent = events[0] ?? null;
 
@@ -110,22 +155,70 @@ export default function DashboardPage() {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-6xl px-6 py-10 lg:px-10">
-      <header>
-        <p className="text-sm font-semibold tracking-[0.3em] text-muted-foreground">
-          KNOCKOUT
+      <header className="flex flex-col justify-between gap-6 sm:flex-row sm:items-start">
+  <div>
+    <p className="text-sm font-semibold tracking-[0.3em] text-muted-foreground">
+      KNOCKOUT
+    </p>
+
+    <h1 className="mt-4 text-4xl font-bold tracking-tight md:text-5xl">
+      Welcome back, {profile.display_name}
+    </h1>
+
+    {profile.nickname && (
+      <p className="mt-2 text-xl italic text-muted-foreground">
+        &quot;{profile.nickname}&quot;
+      </p>
+    )}
+  </div>
+
+  <button
+    type="button"
+    onClick={handleLogout}
+    disabled={isLoggingOut}
+    className="inline-flex min-h-11 items-center justify-center rounded-lg border px-5 font-semibold transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+  >
+    {isLoggingOut ? "Logging Out..." : "Log Out"}
+  </button>
+</header>
+{pendingChallenges.length > 0 && (
+  <section className="mt-8 rounded-2xl border border-red-500/40 bg-red-500/10 p-6 shadow-sm">
+    <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+      <div>
+        <p className="text-sm font-black uppercase tracking-[0.2em] text-red-600">
+          You&apos;ve Been Challenged
         </p>
 
-        <h1 className="mt-4 text-4xl font-bold tracking-tight md:text-5xl">
-          Welcome back, {profile.display_name}
-        </h1>
+        <h2 className="mt-2 text-2xl font-black">
+          {pendingChallenges.length === 1
+            ? `${
+                pendingChallenges[0].challenger?.display_name ||
+                pendingChallenges[0].challenger?.username ||
+                "Another player"
+              } challenged you`
+            : `You have ${pendingChallenges.length} pending challenges`}
+        </h2>
 
-        {profile.nickname && (
-          <p className="mt-2 text-xl italic text-muted-foreground">
-            &quot;{profile.nickname}&quot;
-          </p>
-        )}
-      </header>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {pendingChallenges.length === 1
+            ? `Accept the matchup for ${
+                pendingChallenges[0].event?.name || "the next event"
+              } to unlock your picks.`
+            : "Review your matchup requests and choose who you want to face."}
+        </p>
+      </div>
 
+      <Link
+        href="/matchups"
+        className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-lg bg-red-600 px-5 font-bold text-white transition-opacity hover:opacity-90"
+      >
+        {pendingChallenges.length === 1
+          ? "View Challenge"
+          : "View Challenges"}
+      </Link>
+    </div>
+  </section>
+)}
       <section className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border bg-card p-6 shadow-sm">
           <p className="text-sm text-muted-foreground">Role</p>

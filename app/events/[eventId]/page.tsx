@@ -12,6 +12,7 @@ import {
 import type { Event } from "@/lib/types/event";
 import type { Fight } from "@/lib/types/fight";
 import type { Pick } from "@/lib/types/pick";
+import { hasAcceptedMatchupForEvent } from "@/lib/services/matchups";
 
 function cleanText(value: string) {
   return value
@@ -218,6 +219,7 @@ export default function EventPage() {
     useState<string | null>(null);
   const [successMessage, setSuccessMessage] =
     useState<string | null>(null);
+  const [canMakePicks, setCanMakePicks] = useState(false);
 
   useEffect(() => {
     async function loadEvent() {
@@ -234,12 +236,19 @@ export default function EventPage() {
 
         setEvent(eventData);
 
-        const fightIds = (eventData.fights ?? []).map(
-          (fight) => fight.id
-        );
+    const matchupAccess =
+    await hasAcceptedMatchupForEvent(eventId);
 
-        const pickData = await getCurrentUserPicks(fightIds);
-        setPicks(pickData);
+    setCanMakePicks(matchupAccess);
+
+    const fightIds = (eventData.fights ?? []).map(
+    (fight) => fight.id
+);
+
+const pickData = await getCurrentUserPicks(fightIds);
+setPicks(pickData);
+
+
       } catch (error) {
         console.error("Could not load event:", error);
 
@@ -325,7 +334,45 @@ export default function EventPage() {
       </main>
     );
   }
+if (!canMakePicks) {
+  return (
+    <main className="mx-auto min-h-screen w-full max-w-4xl px-6 py-10">
+      <Link
+        href="/dashboard"
+        className="text-sm font-semibold text-muted-foreground hover:text-foreground"
+      >
+        ← Back to Dashboard
+      </Link>
 
+      <div className="mt-10 rounded-2xl border border-dashed p-10 text-center">
+        <h1 className="text-3xl font-black">
+          Matchup Required
+        </h1>
+
+        <p className="mt-4 text-muted-foreground">
+          You need an accepted head-to-head matchup before
+          making picks for this event.
+        </p>
+
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
+          <Link
+            href="/leaderboard"
+            className="rounded-lg bg-primary px-5 py-3 font-bold text-primary-foreground"
+          >
+            Challenge a Player
+          </Link>
+
+          <Link
+            href="/matchups"
+            className="rounded-lg border px-5 py-3 font-bold hover:bg-muted"
+          >
+            View Matchups
+          </Link>
+        </div>
+      </div>
+    </main>
+  );
+}
   if (!event) {
     return (
       <main className="flex min-h-screen items-center justify-center p-6">
